@@ -481,10 +481,17 @@ def _merge_ledger(state: dict, patch: dict, ch: str, rep: dict) -> None:
     pools = state["pools"]
     for pid, p in (patch.get("pools") or {}).items():
         if pid in pools:
-            for f in ("name", "unit", "initial"):
+            # 已有池只允许改 display 名/单位；initial 是历史事实，禁止事后改
+            #（否则既有 balance_after 与重算值必然冲突，造成"永不可合并"的死路）。
+            for f in ("name", "unit"):
                 if f in p:
                     pools[pid][f] = p[f]
-            rep["warnings"].append(f"资源池 {pid} 声明已修订（余额随重算变化属预期）")
+            if "initial" in p and int(p["initial"]) != int(pools[pid].get("initial", 0)):
+                rep["errors"].append(
+                    f"资源池 '{pid}' 是既有池，禁止修改 initial（按账本不变量，改期初=改历史）")
+                return
+            if any(f in p for f in ("name", "unit")):
+                rep["warnings"].append(f"资源池 {pid} 声明已修订（余额随重算变化属预期）")
         else:
             pools[pid] = {"name": p.get("name", pid), "unit": p.get("unit", ""),
                           "initial": p.get("initial", 0), "current": p.get("initial", 0)}
@@ -543,6 +550,22 @@ def _merge_synopsis(state: dict, patch: dict, ch: str, rep: dict) -> None:
 # ---------------------------------------------------------------------------
 # 应用一份提案
 # ---------------------------------------------------------------------------
+def _merge_proposal_into(data: dict, proposal: dict, ch, ch_num, rep: dict) -> None:
+    """在内存副本上执行全部分区合并；rep['errors'] 非空 = 整体拒绝（含 dry-run 预演）。"""
+    if proposal.get("current"):
+        _merge_current(data["current"], proposal["current"], rep)
+    if proposal.get("entities"):
+        _merge_entities(data["entities"], proposal["entities"], rep)
+    if proposal.get("lines"):
+        _merge_lines(data["lines"], proposal["lines"], ch_num or 0, rep)
+    if proposal.get("timeline"):
+        _merge_timeline(data["timeline"], proposal["timeline"], ch, rep)
+    if proposal.get("ledger"):
+        _merge_ledger(data["ledger"], proposal["ledger"], ch, rep)
+    if proposal.get("synopsis"):
+        _merge_synopsis(data["synopsis"], proposal["synopsis"], ch, rep)
+
+
 def apply_proposal(book: Path, proposal: dict, expected_chapter: str | None = None,
                    dry_run: bool = False) -> dict:
     rep: dict = {"updated": [], "warnings": [], "errors": [],
@@ -551,9 +574,6 @@ def apply_proposal(book: Path, proposal: dict, expected_chapter: str | None = No
     rep["plan"] = plan
     if errors:
         rep["errors"] = errors
-        return rep
-    if dry_run:
-        rep["updated"] = list(plan.values())
         return rep
 
     ch, op = proposal["chapter"], proposal["operation_id"]
@@ -576,27 +596,26 @@ def apply_proposal(book: Path, proposal: dict, expected_chapter: str | None = No
         rep["duplicate"] = True
         return rep
 
-    # 内存事务：先取全部 SSOT 副本，任何损坏 → 拒绝合并
+    # 内存事务：先取全部 SSOT 副本，任何损坏 → 拒绝合并（dry-run 与正式同一条路）。
     try:
         data = {key: copy.deepcopy(load_state(book, key)) for key in STATE_KEYS}
     except ValueError as exc:
         rep["errors"].append(f"状态 SSOT 不可用，拒绝合并: {exc}")
         return rep
 
-    if proposal.get("current"):
-        _merge_current(data["current"], proposal["current"], rep)
-    if proposal.get("entities"):
-        _merge_entities(data["entities"], proposal["entities"], rep)
-    if proposal.get("lines"):
-        _merge_lines(data["lines"], proposal["lines"], ch_num or 0, rep)
-    if proposal.get("timeline"):
-        _merge_timeline(data["timeline"], proposal["timeline"], ch, rep)
-    if proposal.get("ledger"):
-        _merge_ledger(data["ledger"], proposal["ledger"], ch, rep)
-    if proposal.get("synopsis"):
-        _merge_synopsis(data["synopsis"], proposal["synopsis"], ch, rep)
+    _merge_proposal_into(data, proposal, ch, ch_num, rep)
     if rep["errors"]:
-        return rep  # 有错 → 一个字节都不写
+        # 有错 → 一个字节都不写。dry-run 也返回真实合并错误，而非只给"计划"。
+        # 清空"已更新"列出以免误导（整体回滚，任何分区都未生效）。
+        rep["updated"] = []
+        rep["warnings"] = []
+        if dry_run:
+            rep["dry_run"] = True
+        return rep
+
+    if dry_run:
+        rep["dry_run"] = True
+        return rep
 
     # 落盘阶段：全量备份 → 写 → 登记幂等；异常 → 字节级回滚
     sd = state_dir(book)
@@ -661,6 +680,9 @@ def apply_inbox(book: Path, expect_chapter: str | None = None, dry_run: bool = F
             failed_path.rename(inbox / f"{expect_chapter}.json")
             overall["picked_up"] = True
             files = _gather(inbox)
+        elif dry_run and failed_path and failed_path.exists() and not (inbox / f"{expect_chapter}.json").exists():
+            # dry-run 不改文件，但把 failed/ 里的本章提案纳入预演，保持与正式捡回语义一致。
+            files = [failed_path] + [f for f in files if f.resolve() != failed_path.resolve()]
         for pf in files:
             result = {"file": pf.name}
             try:
@@ -732,4 +754,14 @@ def verify_state(book: Path) -> list[str]:
     dup = sorted({x for x in names if names.count(x) > 1})
     if dup:
         errors.append(f"实体注册表重名: {dup}")
+
+    # 闭合性：current.present_characters 必须已注册（与 checks#unregistered_character 同口径）
+    # 改状态时先注册实体，避免封存引用未登记人物的状态（check 的事后拦截升级为 sync 闸门）。
+    known = set(names)
+    for e in data["entities"].get("entries", []):
+        known.update(str(a) for a in e.get("aliases", []) if a)
+    for name in data["current"].get("present_characters", []):
+        if str(name).strip() and str(name) not in known:
+            errors.append(f"current.present_characters 引用未登记实体「{name}」"
+                          "（先在 entities 提案注册，名字须与卡一致）")
     return errors

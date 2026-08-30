@@ -1,6 +1,6 @@
-"""CLI 薄壳：9 命令、参数解析与编排。业务逻辑一律在 engine/*。
+"""CLI 薄壳：10 命令、参数解析与编排。业务逻辑一律在 engine/*。
 
-status / init / pack / evidence / check / sync / snapshot / export / help —— M0–M4 全部交付。
+status / init / pack / evidence / check / sync / snapshot / export / proposal / help —— M0–M4 全部交付。
 退出码：0=ok / 1=阻断（含 check errors、sync 失败）/ 2=用法错。
 """
 from __future__ import annotations
@@ -90,16 +90,23 @@ def cmd_init(args) -> int:
         if args.clean:
             import shutil
             cleared = 0
-            for d in (book / "manuscript", book / "state" / "inbox"):
-                if d.exists():
-                    shutil.rmtree(d)
-                    d.mkdir(parents=True, exist_ok=True)
+            # 只清 manuscript 与收件箱里的待办提案；processed/failed 是审计记录，永不删除（AGENTS 禁令6）。
+            if (book / "manuscript").exists():
+                shutil.rmtree(book / "manuscript")
+                (book / "manuscript" / "vol_01" / "raw").mkdir(parents=True, exist_ok=True)
+                (book / "manuscript" / "vol_01" / "final").mkdir(parents=True, exist_ok=True)
+                cleared += 1
+            inbox = book / "state" / "inbox"
+            if inbox.exists():
+                pending = [p for p in inbox.glob("*.json") if not p.name.endswith(state.NO_MERGE_SUFFIXES)]
+                for p in pending:
+                    p.unlink()
+                if pending:
                     cleared += 1
-            (book / "manuscript" / "vol_01" / "raw").mkdir(parents=True, exist_ok=True)
-            (book / "manuscript" / "vol_01" / "final").mkdir(parents=True, exist_ok=True)
-            (book / "state" / "inbox" / "processed").mkdir(parents=True, exist_ok=True)
-            (book / "state" / "inbox" / "failed").mkdir(parents=True, exist_ok=True)
-            print(f"🧹 已清理草稿区与收件箱（保留圣经/细纲/状态）: {book}（{cleared} 处）")
+                (inbox / "processed").mkdir(parents=True, exist_ok=True)
+                (inbox / "failed").mkdir(parents=True, exist_ok=True)
+            print(f"🧹 已清理草稿区与待办收件箱（保留圣经/细纲/状态；审计记录 processed/failed 保留）: "
+                  f"{book}（{cleared} 处）")
             return 0
         if args.force:
             import shutil
@@ -147,7 +154,9 @@ def _book_brief(book: Path) -> dict:
     words = sum(common.cjk_count(f.read_text(encoding="utf-8", errors="replace")) for f in final_files)
     latest = max((common.chapter_number_from_name(f.name) or 0 for f in final_files), default=0)
     inbox = book / "state" / "inbox"
-    pending = sorted(p.name for p in inbox.glob("ch_*.json")) if inbox.is_dir() else []
+    # 与 state._gather 同口径：draft/template/sample 不参与合并，所以不算"待合并提案"。
+    pending = sorted(p.name for p in inbox.glob("ch_*.json")
+                     if not p.name.endswith(state.NO_MERGE_SUFFIXES)) if inbox.is_dir() else []
     snaps = snapshot.list_snapshots(book)
     pipeline = []
     beats = {common.chapter_number_from_name(f.name) for f in common.find_chapter_files(book, "beats")}
@@ -164,7 +173,7 @@ def _book_brief(book: Path) -> dict:
             "raw": n in raws,
             "final": n in finals,
             "proposal_pending": _glob_any(inbox, f"{tok}.json"),
-            "proposal_merged": any(str(k).startswith(f"{tok}.") for k in applied),
+            "proposal_merged": any(common.chapter_token_to_num(k) == n for k in applied),
             "snapshot": any(s.endswith(f"{tok}_done") for s in snaps),
         }
         pipeline.append(row)
@@ -389,21 +398,33 @@ def cmd_sync(args) -> int:
         return 2
 
     inbox = book / "state" / "inbox"
-    has_proposal = (inbox / f"{ch}.json").exists() or (inbox / "failed" / f"{ch}.json").exists()
-    has_manuscript = bool(common.find_chapter_files(book, "final", ch)
-                          or common.find_chapter_files(book, "raw", ch))
-    if not args.dry_run:
-        if not has_manuscript:
-            print(f"❌ 未找到 {ch} 的任何稿件（raw/final），拒绝空同步")
-            return 1
-        if not has_proposal:
-            hint = ""
-            strays = [p.name for p in inbox.glob(f"{ch}.*") if p.suffix == ".json"] if inbox.is_dir() else []
-            if strays:
-                hint = (f"（发现同章非规范命名：{'、'.join(sorted(strays))}——在途提案每章仅一份，"
-                        f"文件名须为 {ch}.json；已封存章的修订并入下一章提案随 sync 合并）")
-            print(f"❌ 未找到 {ch} 的正式状态提案（inbox 与 failed/ 均无），拒绝空同步{hint}")
-            return 1
+    proposal_path = None
+    for cand in (inbox / f"{ch}.json", inbox / "failed" / f"{ch}.json"):
+        if cand.is_file():
+            proposal_path = cand
+            break
+    has_proposal = proposal_path is not None
+    has_manuscript = bool(common.find_chapter_files(book, "final", ch))
+
+    # 前置闸门（dry-run 与正式一致）：定稿必须存在；提案必须存在且内容对应本章。
+    if not has_manuscript:
+        print(f"❌ 未找到 {ch} 的定稿（final），拒绝空同步（Stage 4 输入合同：beats/raw/final 齐）")
+        return 1
+    if not has_proposal:
+        strays = [p.name for p in inbox.glob(f"{ch}.*") if p.suffix == ".json"] if inbox.is_dir() else []
+        hint = (f"（发现同章非规范命名：{'、'.join(sorted(strays))}——在途提案每章仅一份，"
+                f"文件名须为 {ch}.json；已封存章的修订并入下一章提案随 sync 合并）") if strays else ""
+        print(f"❌ 未找到 {ch} 的正式状态提案（inbox 与 failed/ 均无），拒绝空同步{hint}")
+        return 1
+    try:
+        proposal_data = common.load_json(proposal_path)
+    except ValueError as exc:
+        print(f"❌ 提案 JSON 解析失败: {exc}")
+        return 1
+    if not isinstance(proposal_data, dict) or proposal_data.get("chapter") != ch:
+        got = proposal_data.get("chapter") if isinstance(proposal_data, dict) else f"非对象({type(proposal_data).__name__})"
+        print(f"❌ 提案内容与同步目标不一致: {proposal_path.name} 的 chapter={got} ≠ {ch}，拒绝空同步")
+        return 1
 
     gate = checks.review_gate(book, ch)
     if gate:
@@ -415,14 +436,20 @@ def cmd_sync(args) -> int:
     overall = state.apply_inbox(book, expect_chapter=ch, dry_run=args.dry_run)
     verify_errors: list[str] = []
     snap_msg, snap_ok = "", True
-    if not args.dry_run and overall["failed"] == 0:
+    applied_now = overall.get("applied", 0)
+    # 只有真正应用/重复通过才算有效同步；错章/空转（skipped>0 且 applied=0）拒绝。
+    no_op = applied_now == 0 and overall.get("duplicates", 0) == 0
+    if no_op and not overall.get("failed"):
+        print("❌ 未合入任何变更（提案为错章/被留置/空提案），拒绝封存快照")
+        return 1
+    if not args.dry_run and overall["failed"] == 0 and applied_now > 0:
         verify_errors = state.verify_state(book)
         if not verify_errors:
             snap_ok, snap_msg = snapshot.create_snapshot(book, f"{ch}_done")
 
     payload = {"chapter": ch, "dry_run": args.dry_run, "apply": overall,
                "verify_errors": verify_errors, "snapshot": {"ok": snap_ok, "name": snap_msg}
-               if not args.dry_run and overall["failed"] == 0 else None}
+               if not args.dry_run and overall["failed"] == 0 and applied_now > 0 else None}
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
@@ -451,7 +478,7 @@ def cmd_sync(args) -> int:
                 print(f"    {e}")
         elif snap_msg:
             print(f" 📸 快照：{'✅ ' if snap_ok else '❌ '}{snap_msg}")
-        if not has_proposal and not args.dry_run and overall["applied"] == 0:
+        if not has_proposal and not args.dry_run and applied_now == 0:
             print(" ℹ️ 无本章提案")
     if overall["failed"] or verify_errors or (not snap_ok and snap_msg):
         return 1
@@ -628,7 +655,8 @@ def _build_parser() -> argparse.ArgumentParser:
     q.add_argument("-t", "--title", help="书名")
     q.add_argument("-g", "--genre", help="题材")
     q.add_argument("-p", "--protagonist", help="主角名")
-    q.add_argument("--clean", action="store_true", help="清稿重来（只清 manuscript 与收件箱）")
+    q.add_argument("--clean", action="store_true",
+                   help="清稿重来（清 manuscript 与待办提案；保留 processed/failed 审计与状态）")
     q.add_argument("--force", action="store_true", help="整本重开（仅限已登记书目录，危险）")
     q.set_defaults(func=cmd_init)
 

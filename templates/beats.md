@@ -5,7 +5,7 @@ form:                      # 章型（craft#反公式化与拟人化 章型库�
 pov:                       # 视角人物·距离
 words: 2200-4500           # 目标带（仅参照）——与相邻章的带错开（craft 方差条）
 style_notes:               # 句长倾向 | 章首手段 | 章尾方式（三旋钮，竖线分隔）
-guard_extra: 词1|词2                # 可省：本章禁忌词（可数的进引擎，见 craft#front-matter 键）
+guard_extra:               # 可省：本章禁忌词（竖线分隔；留空=不统计示例词，见 craft#front-matter 键）
 # form_reason:             # 仅当与上一章 form 相同
 ---
 

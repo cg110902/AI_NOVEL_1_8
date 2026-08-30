@@ -29,13 +29,13 @@ AI_CONSTRUCTIONS: list[tuple[str, str]] = [
 
 # --------------------------------------------------------------------------- 公共小件
 def final_chapters(book: Path) -> list[tuple[str, int, str]]:
-    """按章号升序的 [(ch_token, num, text)]，一章多文件时取最新版。"""
+    """按章号升序的 [(ch_token, num, text)]，一章多文件时取版本号最大者（v10 > v2）。"""
     by_ch: dict[int, tuple[str, int, Path]] = {}
     for f in common.find_chapter_files(book, "final"):
         n = common.chapter_number_from_name(f.name)
         if n is not None:
-            prev = by_ch.get(n)
-            if prev is None or f.name >= prev[2].name:
+            cur = by_ch.get(n)
+            if cur is None or common.chapter_version_from_name(f.name) > common.chapter_version_from_name(cur[2].name):
                 by_ch[n] = (f"ch_{n:03d}", n, f)
     out = []
     for n in sorted(by_ch):
@@ -58,9 +58,15 @@ def _shingles(sents: list[str], n: int = SHINGLE_N) -> set[str]:
 
 
 def count_aliases(text: str, aliases: list[str]) -> dict[str, int]:
-    """最长优先的非重叠计数：「当铺赵四」命中后其内嵌「赵四」不重复计。"""
-    pat = re.compile("|".join(re.escape(a) for a in sorted(aliases, key=len, reverse=True)))
-    per = dict.fromkeys(aliases, 0)
+    """最长优先的非重叠计数：「当铺赵四」命中后其内嵌「赵四」不重复计。
+
+    过滤空串别名（避免空正则匹配全文）；无有效别名时返回空 dict，绝不崩溃。
+    """
+    valid = [a for a in (aliases or []) if a and str(a).strip()]
+    if not valid:
+        return {}
+    pat = re.compile("|".join(re.escape(a) for a in sorted(valid, key=len, reverse=True)))
+    per = dict.fromkeys(valid, 0)
     for m in pat.finditer(text or ""):
         per[m.group(0)] += 1
     return per

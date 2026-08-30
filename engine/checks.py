@@ -54,8 +54,9 @@ def _section(md_text: str, title_pat: str) -> list[str]:
 def review_gate(book: Path, ch: str) -> list[str]:
     """Stage 3/4 合同（机械层）：审校注记「验收打钩」节必须逐条答完任务书「验收」。
 
-    只数行与符号：beats 无「验收」节 → 不拦（无清单可对照）；注记不存在 → 不拦
-    （主控代笔例外，status 流水线另有信号）；注记存在 → 缺答/缺✓✗/✓而短于证据线 = 拒绝封存。
+    只数行与符号：beats 无「验收」节 → 不拦（无清单可对照）；beats 有「验收」而注记缺失 →
+    拦（Stage 3 校对/注记/回话是封存前提，不允许主控代笔静默放行）；注记存在 → 缺答/缺✓✗/
+    ✓而短于证据线 = 拒绝封存。
     """
     beats = [f for f in common.find_chapter_files(book, "beats")
              if common.chapter_number_from_name(f.name) == common.chapter_token_to_num(ch)]
@@ -67,7 +68,7 @@ def review_gate(book: Path, ch: str) -> list[str]:
         return []
     rev = book / "log" / "review" / f"{ch}.md"
     if not rev.is_file():
-        return []
+        return [f"beats「验收」共 {k} 条，但审校注记 {ch}.md 不存在（Stage 3 未留审计；拒封存）"]
     items = _numbered_items(_section(rev.read_text(encoding="utf-8", errors="replace"),
                                      r"^##\s*验收"))
     issues: list[str] = []

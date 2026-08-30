@@ -1,0 +1,18 @@
+# 工作区书籍生成物（正文/状态/快照）不入库
+workspace/
+
+# 导出产物
+export/
+
+# Python 运行时产物
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.tmp
