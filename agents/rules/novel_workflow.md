@@ -150,8 +150,8 @@ style_notes: 短句急雨 | 章首中间开始 | 章尾弱收   # 三旋钮
 - `project.json.mode = automatic`：主控循环 Stage 1–4 不停；唯二暂停点 = check 出现
   errors、同章拒收用尽（见#拒收语义）。`manual`：每 Stage 输出先回报，等"继续"。
 - 自然语言控制（宿主转述用户指令，主控不猜）：暂停；继续；重写本章（回 Stage 2，v+1）；
-  跳到 ch_N（仅限用户明说——状态机不阻止超前，但 status 流水线会标缺口，
-  sync 守卫保证缺口不产生半合并）； 
+  跳到 ch_N（仅限用户明说——状态机不阻止超前，但 status 流水线会标缺口；
+  sync 前置闸门要求 final + 对应提案，错章/无定稿不封存，故不会产生半合并）； 
 - 回退与恢复：`snapshot list` 选点 → `snapshot rollback <名>` 回滚 state（回滚前引擎自动
   留 pre_rollback_ 存档；`--clean-drafts` 清掉晚于该点的稿件）。final 正文不在快照内——归 git。
   回退已封存章 = 回滚后该章从 Stage 3 重走，禁止直接编辑已封存 final 再 sync。

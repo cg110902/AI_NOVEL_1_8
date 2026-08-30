@@ -132,10 +132,22 @@ def rollback_snapshot(book: Path, target: str) -> tuple[bool, str, str]:
             shutil.copy2(f, backup_dir / f.name)
         common.dump_json(backup_dir / MANIFEST_NAME, _manifest_of(backup_dir))
         restored = []
+        restored_names = set()
         for f in sorted(chosen.iterdir()):
             if f.is_file() and f.name != MANIFEST_NAME:
                 shutil.copy2(f, sd / f.name)
                 restored.append(f.name)
+                restored_names.add(f.name)
+        # 清理快照点之后新增的顶层状态文件（不在快照 = 回滚点不存在，保留会与旧现场冲突）。
+        for f in list(sd.iterdir()):
+            if not f.is_file() or f.name in restored_names:
+                continue
+            if f.name in {".state.lock", ".engine.lock", MANIFEST_NAME}:
+                continue
+            if f.name.startswith(".") and f.name != state.MARKER_NAME:
+                continue
+            if f.suffix in (".json", ".md"):
+                f.unlink()
     lines = [f"已回滚至快照 {chosen.name}（恢复 {len(restored)} 个文件）",
              f"当前状态已自动备份为 pre_rollback_{ts}"]
     if note:

@@ -12,7 +12,7 @@
 | checks.py | check：结构/schema/算术/逾期/form 占比；sync 前置 `review_gate`（验收覆盖数行） |  
 | evidence.py | words/style/form/dup/mentions/gaps/file + all 聚合——只输出数 |  
 | pack.py | P0 任务书整块 / P1 触发 / P2 索引，超预算按优先级硬裁 |  
-| snapshot.py | 快照 create/list/rollback（pre_rollback 保护；不碰 manuscript） |  
+| snapshot.py | 快照 create/list/rollback（pre_rollback 保护；模块不碰 manuscript；CLI 的 --clean-drafts 会额外清理超章稿件） |  
 
 输出契约：数据类命令 stdout 单个 JSON；status/check 为人读表（断言在 test_cli 冻结）。
 退出码：0=成功；1=业务拒绝（校验失败/闸门）；2=用法错误。

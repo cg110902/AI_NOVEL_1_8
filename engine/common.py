@@ -21,6 +21,7 @@ from pathlib import Path
 CH_NAME_RE = re.compile(r"ch[_-]?0*(\d+)(?![0-9])", re.IGNORECASE)
 CHAPTER_RE = re.compile(r"chapter[_-]?0*(\d+)(?![0-9])", re.IGNORECASE)
 VOL_RE = re.compile(r"vol[_-]?0*(\d+)", re.IGNORECASE)
+VERSION_RE = re.compile(r"[_-]?v(\d+)(?:\D|$)", re.IGNORECASE)
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
 
@@ -40,7 +41,7 @@ def project_root() -> Path:
 # 工作区解析
 # ---------------------------------------------------------------------------
 def workspace_root(root: Path | None = None) -> Path:
-    """所有书工作区的父目录：<repo>/workspace（默认 gitignore）。"""
+    """所有书工作区的父目录：<repo>/workspace（见仓库 .gitignore）。"""
     return (root or project_root()) / "workspace"
 
 
@@ -101,15 +102,22 @@ def file_matches_chapter(path: Path | str, target: object) -> bool:
     return want is not None and want == got
 
 
-def natural_chapter_sort_key(path: Path) -> tuple[int, int, str]:
-    """(卷号, 章号, 名字)：跨目录排序的确定性键。"""
+def chapter_version_from_name(name: str) -> int:
+    """从文件名提取版本号：ch_001_v2.md → 2；无版本 → 0（数字版本，非字典序）。"""
+    m = VERSION_RE.search(Path(name).stem)
+    return int(m.group(1)) if m else 0
+
+
+def natural_chapter_sort_key(path: Path) -> tuple[int, int, int, str]:
+    """(卷号, 章号, 稿版本, 名字)：跨目录排序的确定性键（数字版本，v10 > v2）。"""
     vol = 0
     for part in path.parts:
         m = VOL_RE.search(part)
         if m:
             vol = int(m.group(1))
             break
-    return (vol, chapter_number_from_name(path.name) or 0, path.name)
+    return (vol, chapter_number_from_name(path.name) or 0,
+            chapter_version_from_name(path.name), path.name)
 
 
 def find_chapter_files(book_dir: Path, area: str = "final", target: object = None) -> list[Path]:

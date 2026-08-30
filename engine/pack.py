@@ -191,7 +191,7 @@ def build_pack(book: Path, ch: str, lean: bool = False, full: bool = False) -> d
         payload["p2"] = p2
 
     texts = {layer: payload[layer] for layer in ("p0", "p1", "p2")}
-    rendered = {k: (render_layer(k, v) if v else "") for k, v in texts.items()}
+    rendered = {k: (render_layer(k, v, full=full) if v else "") for k, v in texts.items()}
     budget = {k: common.est_tokens(v) for k, v in rendered.items()}
     budget["total"] = sum(budget.values())
     budget["cap"] = PACK_TOKEN_CAP
@@ -201,7 +201,7 @@ def build_pack(book: Path, ch: str, lean: bool = False, full: bool = False) -> d
     return payload
 
 
-def render_layer(name: str, obj) -> str:
+def render_layer(name: str, obj, full: bool = False) -> str:
     """预算自报用的确定性纯文本渲染（与 render_pack 同口径的简化版）。"""
     if obj is None:
         return ""
@@ -217,7 +217,8 @@ def render_layer(name: str, obj) -> str:
             if b.get("lines"):
                 lines.append(f"  挂线: {', '.join(b['lines'])}")
             if b.get("card_text"):
-                lines.append(f"  卡全文: {b['card_text'][:400]}")
+                card = b["card_text"] if full else b["card_text"][:400]
+                lines.append(f"  卡全文: {card}")
         lines += [f"[间接] {s}" for s in obj["indirect"]]
         lines += ["--- 梗概脊柱 ---"] + obj["spine"]
         return "\n".join(lines)
@@ -230,11 +231,11 @@ def render_pack(payload: dict) -> str:
     b = payload["budget_report"]
     out = [f"# pack {payload['chapter']}" + (" [lean]" if payload["lean"] else "")
            + (" [full]" if payload["full"] else ""), "",
-           "## P0 热层（恒给）", render_layer("p0", payload["p0"])]
+           "## P0 热层（恒给）", render_layer("p0", payload["p0"], full=payload["full"])]
     if payload["p1"] is not None:
-        out += ["", "## P1 温层（别名触发）", render_layer("p1", payload["p1"])]
+        out += ["", "## P1 温层（别名触发）", render_layer("p1", payload["p1"], full=payload["full"])]
     if payload["p2"] is not None:
-        out += ["", "## P2 冷层（索引）", render_layer("p2", payload["p2"])]
+        out += ["", "## P2 冷层（索引）", render_layer("p2", payload["p2"], full=payload["full"])]
     out += ["", f"budget: p0={b['p0']} p1={b.get('p1', 0)} p2={b.get('p2', 0)} "
                 f"total={b['total']}/{b['cap']} tokens（超预算={b['over_budget']}）"]
     return "\n".join(out)
@@ -258,11 +259,23 @@ def export_txt(book: Path) -> Path:
         parts.append(f"> {proj['genre']} · 引擎编译\n")
     ms = book / "manuscript"
     vols = sorted({f.relative_to(ms).parts[0] for f in ms.glob("*/final/ch_*.md")})
+    # 与 evidence.final_chapters 同口径：同章多版本只取版本号最大者（v10 > v2）。
+    chosen: dict[int, tuple[str, Path]] = {}
     for vol in vols:
-        parts.append(f"\n\n# {vol}\n")
         vfiles = sorted((ms / vol / "final").glob("ch_*.md"), key=common.natural_chapter_sort_key)
         for f in vfiles:
-            parts.append(f.read_text(encoding="utf-8", errors="replace").strip() + "\n")
+            n = common.chapter_number_from_name(f.name)
+            if n is None:
+                continue
+            cur = chosen.get(n)
+            if cur is None or common.chapter_version_from_name(f.name) > common.chapter_version_from_name(cur[1].name):
+                chosen[n] = (vol, f)
+    for vol in vols:
+        body = [f.read_text(encoding="utf-8", errors="replace").strip() + "\n"
+                for n, (v, f) in sorted(chosen.items()) if v == vol]
+        if body:
+            parts.append(f"\n\n# {vol}\n")
+            parts.extend(body)
     out = book / "export"
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{title}.txt"

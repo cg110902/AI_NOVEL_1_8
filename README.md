@@ -13,8 +13,12 @@ python studio.py pack ch_001          # 装配子代理上下文（P0/P1/P2 三�
 python studio.py evidence words       # 机械证据：字数/提及/线状态/查重/风格指纹（纯 JSON）
 python studio.py check                # 事实级体检：errors 阻断，warnings 只报数
 python studio.py sync ch_001          # 提案合并 → 状态体检 → 快照（Stage 4）
+python studio.py proposal new ch_002  # 打印下一章提案骨架（填入 state/inbox/ch_002.json）
 python studio.py snapshot rollback ch_001_done --clean-drafts      # 回滚
 python studio.py export --txt         # 全书编译
+
+# 回归测试（本仓库自检；纯 stdlib，无需联网）
+python -m unittest discover -s tests -v
 ```
 
 ## 文档地图
@@ -26,6 +30,6 @@ python studio.py export --txt         # 全书编译
 | | `agents/rules/novel_craft.md` | 文学默认值（可被「本书偏离清单」覆盖） |
 | | `agents/skills/*/SKILL.md` | 5 张岗位合同（director/beats-builder/drafter/guard/syncer） |
 | | `agents/genre_guide.md` | 8 题材选择题素材（非公式） |
-| 引擎层 | `studio.py` + `engine/` | 9 命令薄壳；纯 stdlib；模块依赖 cli → 各领域 → common |
+| 引擎层 | `studio.py` + `engine/` | 10 命令薄壳；纯 stdlib；模块依赖 cli → 各领域 → common |
 | 数据层 | `workspace/<书名>/` | 圣经/大纲/稿件自由文本；`state/` 6 JSON = 机器真值（提案制写入） |
   
