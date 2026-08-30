@@ -1,0 +1,83 @@
+{
+  "type": "object",
+  "required": [
+    "foreshadows",
+    "misunderstandings"
+  ],
+  "properties": {
+    "foreshadows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "plant_ch",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "GUN-\\d{3,}"
+          },
+          "name": {
+            "type": "string"
+          },
+          "plant_ch": {
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "Planted",
+              "Reminded",
+              "Resolved"
+            ]
+          },
+          "target_ch": {},
+          "plan": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "misunderstandings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "parties",
+          "content",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "MIS-\\d{3,}"
+          },
+          "parties": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "truth": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer"
+          },
+          "target_ch": {},
+          "status": {
+            "enum": [
+              "Active",
+              "Resolved"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

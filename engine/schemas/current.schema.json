@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "time": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string"
+    },
+    "power_level": {
+      "type": "string"
+    },
+    "abilities": {
+      "type": "string"
+    },
+    "injury": {
+      "type": "string"
+    },
+    "equipment": {
+      "type": "string"
+    },
+    "assets": {
+      "type": "string"
+    },
+    "situation": {
+      "type": "string"
+    },
+    "present_characters": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

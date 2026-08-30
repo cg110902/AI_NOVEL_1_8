@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "required": [
+    "schema",
+    "chapter"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "enum": [
+        "novel-studio.state-mutation/v2"
+      ]
+    },
+    "chapter": {
+      "type": "string",
+      "pattern": "ch_\\d{3,}"
+    },
+    "operation_id": {
+      "type": "string",
+      "pattern": "[A-Za-z0-9_.-]{1,128}"
+    },
+    "_draft": {
+      "type": "boolean"
+    },
+    "current": {
+      "type": "object"
+    },
+    "entities": {
+      "type": "array"
+    },
+    "lines": {
+      "type": "array"
+    },
+    "timeline": {
+      "type": "object"
+    },
+    "ledger": {
+      "type": "object"
+    },
+    "synopsis": {
+      "type": "object"
+    }
+  }
+}
